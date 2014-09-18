@@ -1,0 +1,74 @@
+type Stack<T> []T
+
+func (s *Stack<T>) Push(x T) {
+	s = append(s, x)
+}
+
+func (s *Stack<T>) Pop() T {
+	x := s[len(s)-1]
+	s = s[:len(s)-1]
+	return x
+}
+
+func main() {
+	s := Stack<int>{}
+	s.Push(123)
+	s.Push(456)
+	fmt.Println(s)
+	v := s.Pop()
+	fmt.Println(s, v)
+	fmt.Println(s, func() int {
+		var v int
+		s.Pop(&v)
+		return v
+	}())
+}
+
+....
+
+package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Stack struct {
+	t reflect.Type
+	v []interface{}
+}
+
+func (s Stack) String() string {
+	return fmt.Sprint(s.v)
+}
+
+func (s *Stack) Push(x interface{}) {
+	tx := reflect.TypeOf(x)
+	if tx != s.t {
+		panic("")
+	}
+	s.v = append(s.v, x)
+}
+
+func (s *Stack) Pop(out interface{}) {
+	vout := reflect.ValueOf(out)
+	tout := vout.Type()
+	if tout.Kind() != reflect.Ptr || tout.Elem() != s.t {
+		panic("")
+	}
+	x := s.v[len(s.v)-1]
+	s.v = s.v[:len(s.v)-1]
+	reflect.Indirect(vout).Set(reflect.ValueOf(x))
+}
+
+func main() {
+	s := Stack{t: reflect.TypeOf(new(int)).Elem()}
+	s.Push(123)
+	s.Push(456)
+	fmt.Println(s)
+	var v int
+	s.Pop(&v)
+	fmt.Println(s, v)
+	s.Pop(&v)
+	fmt.Println(s, v)
+}

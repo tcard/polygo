@@ -1,0 +1,215 @@
+// - Only named type _definitions_ and function declarations and function literals can take type params.
+// - For methods, they get their types' type params.
+
+// ## Definitions
+
+// TypeSpec = [ "<" identifier { "," identifier } ">" ] identifier Type .
+
+type <T>Stack []T
+
+func (s *<T>Stack) Push(x T) {
+	s = append(s, x)
+}
+
+func (s *<T>Stack) Pop() T {
+	x := s[len(s)-1]
+	s = s[:len(s)-1]
+	return x
+}
+
+type <k, v>OrderedMap struct {
+	m map[k]v
+	order []k
+}
+
+type <T>MyChan chan T
+
+type <T>IStack interface {
+	Push(x T)
+	Pop() T
+}
+
+func <a, b>Map(f func(a) b, as []a) []b {
+	bs := make([]b, len(as))
+	for i, v := range as {
+		bs[i] = f(v)
+	}
+	return bs
+}
+
+var filter <a>func(f func(a) bool, as []a) []a
+
+// ## Instantiation
+
+// TypeParamsExpr = "<" identifier { "," identifier } ">" Type .
+// TypeLit = TypeParamsExpr | ...
+// LiteralType = TypeParamsExpr | ...
+
+var s <int>Stack
+new(<int>Stack)
+make(<int>MyChan)
+<int>Stack{1, 2, 3}
+
+// ## Examples
+
+type <T>Stack []T
+
+func (s *<T>Stack) Push(x T) {
+	s = append(s, x)
+}
+
+func (s *<T>Stack) Pop() T {
+	x := s[len(s)-1]
+	s = s[:len(s)-1]
+	return x
+}
+
+func main() {
+	s := <int>Stack{}
+	s.Push(123)
+	s.Push(456)
+	fmt.Println(s)
+	v := s.Pop()
+	fmt.Println(s, v)
+	fmt.Println(s, func() int {
+		var v int
+		s.Pop(&v)
+		return v
+	}())
+
+	// <int, string> could be inferred.
+	b := <int, string>Map(func(x int) string{
+		strconv.Itoa(x+2)
+	}, []int{1, 2, 3})
+	fmt.Println(b)
+
+	filter := <a>func(f func(a) bool, as []a) []a {
+		ret := []a{}
+		for i, v := range as {
+			if f(v) {
+				ret = append(ret, v)
+			}
+		}
+		return ret
+	}
+	fmt.Println(filter(func(x int) bool {
+		return x % 2 == 0
+	}, []int{1, 2, 3, 4, 5, 6}))
+}
+
+// ### reflect
+
+package main
+
+import (
+	"fmt"
+	"reflect"
+)
+
+type Stack struct {
+	t0 reflect.Type
+	v []interface{}
+}
+
+func (s Stack) String() string {
+	return fmt.Sprint(s.v)
+}
+
+func (s *Stack) Push(x interface{}) {
+	tx := reflect.TypeOf(x)
+	if tx != s.t0 {
+		panic("")
+	}
+	s.v = append(s.v, x)
+}
+
+func (s *Stack) Pop(out interface{}) {
+	vout := reflect.ValueOf(out)
+	tout := vout.Type()
+	if tout.Kind() != reflect.Ptr || tout.Elem() != s.t0 {
+		panic("")
+	}
+	x := s.v[len(s.v)-1]
+	s.v = s.v[:len(s.v)-1]
+	reflect.Indirect(vout).Set(reflect.ValueOf(x))
+}
+
+func Map(t0, t1 reflect.Type, f interface{}, as interface{}, out interface{}) {
+	vout := reflect.ValueOf(out)
+	tout := vout.Type()
+	if tout.Kind() != reflect.Ptr || tout.Elem().Kind() != reflect.Slice || tout.Elem().Elem() != t1 {
+		panic("")
+	}
+	vas := reflect.ValueOf(as)
+	tas := vas.Type()
+	if tas.Kind() != reflect.Slice || tas.Elem() != t0 {
+		panic("")
+	}
+	vf := reflect.ValueOf(f)
+	// Check for f missing.
+	bs := reflect.MakeSlice(reflect.SliceOf(t1), vas.Len(), vas.Len())
+	for i := 0; i < vas.Len(); i++ {
+		v := vas.Index(i)
+		bs.Index(i).Set(vf.Call([]reflect.Value{v})[0])
+	}
+	reflect.Indirect(vout).Set(bs)
+}
+
+func main() {
+	s := Stack{t0: reflect.TypeOf(new(int)).Elem()}
+	s.Push(123)
+	s.Push(456)
+	fmt.Println(s)
+	var v int
+	s.Pop(&v)
+	fmt.Println(s, v)
+	s.Pop(&v)
+	fmt.Println(s, v)
+
+	// <int, string> could be inferred.
+	b := func() []string {
+		var v []string
+		Map(reflect.TypeOf(new(int)).Elem(),
+			reflect.TypeOf(new(string)).Elem(),
+			func(x int) string {
+				return strconv.Itoa(x + 2)
+			},
+			[]int{1, 2, 3},
+			&v)
+		return v
+	}()
+	fmt.Println(b)
+
+	filter := func(t0 reflect.Type, f interface{}, as interface{}, out interface{}) {
+		vout := reflect.ValueOf(out)
+		tout := vout.Type()
+		if tout.Kind() != reflect.Ptr || tout.Elem().Kind() != reflect.Slice || tout.Elem().Elem() != t0 {
+			panic("")
+		}
+		vas := reflect.ValueOf(as)
+		tas := vas.Type()
+		if tas.Kind() != reflect.Slice || tas.Elem() != t0 {
+			panic("")
+		}
+		vf := reflect.ValueOf(f)
+		// Check for f missing.
+		ret := reflect.MakeSlice(reflect.SliceOf(t0), 0, 0)
+		for i := 0; i < vas.Len(); i++ {
+			v := vas.Index(i)
+			if vf.Call([]reflect.Value{v})[0].Interface().(bool) {
+				ret = reflect.Append(ret, v)
+			}
+		}
+		reflect.Indirect(vout).Set(ret)
+	}
+	fmt.Println(func() []int {
+		var v []int
+		filter(reflect.TypeOf(new(int)).Elem(),
+			func(x int) bool {
+				return x % 2 == 0
+			},
+			[]int{1, 2, 3, 4, 5, 6},
+			&v)
+		return v
+	}())
+}

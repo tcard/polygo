@@ -3,28 +3,49 @@ package main
 import (
 	"fmt"
 	"go/token"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/tcard/polygo/parser"
+	"github.com/tcard/polygo/printer"
 )
 
 func main() {
-	s := `
-	package main
-
-	type <a>Stack []a
-
-	var s <int>Stack
-
-	func main() {
-		a := <int>Stack{}
-		var a <int>Stack
+	src, err := ioutil.ReadFile(os.Args[1])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
-	`
 
-	file, err := parser.ParseFile(&token.FileSet{}, "", s, 0)
-	_, _ = file, err
-	fmt.Println("ERR", err)
-	// fmt.Printf("%[1]v %[1]T\n", file.Decls[0].(*ast.GenDecl).Specs[0].(*ast.TypeSpec).Params)
-	// fmt.Printf("%[1]v %[1]T\n", file.Decls[1].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Type.(*ast.TypeParamsExpr).Params)
-	// fmt.Printf("%[1]v %[1]T\n", file.Decls[2].(*ast.FuncDecl).Body.List[0].(*ast.AssignStmt).Rhs[0])
+	ast, err := parser.ParseFile(&token.FileSet{}, "", string(src), 0)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	err = transformAST(ast, "reflect")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	dir, file := filepath.Split(os.Args[1])
+	out := dir + file[:len(file)-len(filepath.Ext(file))] + ".go"
+	w, _ := os.Create(out)
+
+	err = printer.Fprint(w, token.NewFileSet(), ast)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	cmd := exec.Command("go", "run", out)
+	cmdout, err := cmd.CombinedOutput()
+	fmt.Print(string(cmdout))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

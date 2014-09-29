@@ -1,3 +1,4 @@
+
 // - Only named type _definitions_ and function declarations and function literals can take type params.
 // - For methods, they get their types' type params.
 

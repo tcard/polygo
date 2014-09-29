@@ -1,0 +1,45 @@
+package main
+
+type <k, v>OrderedMap struct {
+	m map[k]v
+	order []k
+}
+
+type <k, v>OrderedMapPair struct {
+	key k
+	value v
+}
+
+func (m <k, v>OrderedMap) Set(key k, value v) {
+	m.m[key] = value
+	m.order = append(m.order, key)
+}
+
+func (m <k, v>OrderedMap) Get(key k) (v, bool) {
+	val, ok := m.m[key]
+	return val, ok
+}
+
+// TODO
+// func (m <k, v>OrderedMap) Items() []<k, v>OrderedMapPair {
+// 	ret := []<k, v>OrderedMapPair{}
+// 	for key := range m.order {
+// 		ret = append(ret, <k, v>OrderedMapPair{
+// 			key: key,
+// 			value: m.m[key],
+// 		})
+// 	}
+// 	return ret
+// }
+
+func main() {
+	m := <string, int>OrderedMap{m: map[string]int{}}
+	m.Set("abc", 123)
+
+	v, ok := func() (int, bool) {
+		var out int
+		ok := m.Get("abc", &out)
+		return out, ok
+	}()
+	fmt.Println(v, ok, m)
+}

@@ -3,49 +3,71 @@ package main
 import (
 	"fmt"
 	"go/token"
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 
-	"github.com/tcard/polygo/parser"
-	"github.com/tcard/polygo/printer"
+	"github.com/tcard/polygo/polygo"
+	"github.com/tcard/polygo/polygo/ast"
+	"github.com/tcard/polygo/polygo/printer"
 )
 
 func main() {
-	src, err := ioutil.ReadFile(os.Args[1])
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	fromStdin := len(os.Args) == 1
+	var transpilers []func() (string, string, *ast.File, io.Writer, error)
+	if fromStdin {
+		transpilers = append(transpilers, func() (string, string, *ast.File, io.Writer, error) {
+			ast, err := polygo.Transpile(os.Stdin)
+			if err != nil {
+				return "stdin", "", ast, nil, err
+			}
+			f, err := ioutil.TempFile(os.TempDir(), "polygo-")
+			return "stdin", f.Name(), ast, f, err
+		})
+	} else {
+		for _, filename := range os.Args[1:] {
+			filename := filename
+			transpilers = append(transpilers, func() (string, string, *ast.File, io.Writer, error) {
+				ast, err := polygo.TranspileFile(filename)
+				if err != nil {
+					return filename, "", ast, nil, err
+				}
+				dir, file := filepath.Split(filename)
+				out := dir + file[:len(file)-len(filepath.Ext(file))] + ".go"
+				w, err := os.Create(out)
+				return filename, out, ast, w, err
+			})
+		}
 	}
 
-	ast, err := parser.ParseFile(&token.FileSet{}, "", string(src), 0)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	anyError := false
+	outfiles := []string{}
+	for _, tsp := range transpilers {
+		filename, outfile, file, w, err := tsp()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, filename+":", err)
+			anyError = true
+			continue
+		}
+		err = printer.Fprint(w, token.NewFileSet(), file)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, filename+":", err)
+			anyError = true
+		}
+		outfiles = append(outfiles, outfile)
 	}
 
-	err = transformAST(ast, "reflect")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
-	dir, file := filepath.Split(os.Args[1])
-	out := dir + file[:len(file)-len(filepath.Ext(file))] + ".go"
-	w, _ := os.Create(out)
-
-	err = printer.Fprint(w, token.NewFileSet(), ast)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
-	cmd := exec.Command("go", "run", out)
-	cmdout, err := cmd.CombinedOutput()
-	fmt.Print(string(cmdout))
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	if !anyError {
+		cmd := exec.Command("go", append([]string{"run"}, outfiles...)...)
+		cmdout, err := cmd.CombinedOutput()
+		fmt.Print(string(cmdout))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	} else {
 		os.Exit(1)
 	}
 }

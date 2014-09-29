@@ -33,7 +33,7 @@ func (m <k, v>OrderedMap) Get(key k) (v, bool) {
 // }
 
 func main() {
-	m := <string, int>OrderedMap{m: map[string]int{}}
+	m := <string, int>OrderedMap{m: map[string]int{"nene": 9999}}
 	m.Set("abc", 123)
 
 	v, ok := func() (int, bool) {

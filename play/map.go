@@ -67,7 +67,9 @@ func main() {
 		}
 		order	[]interface {
 		}
-	}{m: map[string]int{}}}
+	}{m: map[interface {
+	}]interface {
+	}{"nene": 9999}}}
 	m.Set("abc", 123)
 	v, ok := func() (int, bool) {
 		var out int

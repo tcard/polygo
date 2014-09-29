@@ -9,37 +9,39 @@ Transformations:
   each appearance of p0, p1, p2... replaced by interface{}.
   1. The original will be kept in a data structure so we can typecheck later.
 2. A function f with type parameters p0, p1, p2... will:
-  1. Add t0, t1, t2... arguments with reflect.Type types to the beginning of the argument list.
+  TOOO 1. Add t0, t1, t2... arguments with reflect.Type types to the beginning of the argument list.
      Every argument whose type refers to the type parameters will have its type turned into
      interface{}.
   2. Every result r0, r1... that refers to a type parameter will be removed and a new argument added
      to the argument list with type interface{}. Those will need to be pointers of the defined type.
         func <a>f() (map[a]int, error) --> func <a>f(out *map[a]int) error
-  3. For those added arguments, and for the receiver if its type is parameterized, some checks
-     using reflection will be added at the top of the function body for the passed to be coherent
-     with the defined schema.
+  3. For those added arguments, and for the receiver if its type is parameterized, and for the new
+  	 out arguments, some checks using reflection will be added at the top of the function body for
+  	 the passed to be coherent with the defined schema.
   4. Every return statement will only return the results not using the type parameters. r0, r1...
      will be then set using reflection.
-  5. Parameters with parameterized types (including the receiver if its type is parameterized) will
+  TODO 5. Parameters with parameterized types (including the receiver if its type is parameterized) will
      be handled with reflection.
 3. Inside a function body with active type parameters p0, p1, p2...:
   1. Constructing a value of a parameterized type will be transformed to a construction of the
-     transpiled struct. t0, t1, t2... will be given reflect.Types of the passed types. In v, we'll
-     put the previous RHS of the construction, with the type parameters turned into interface{} to
-     match the converted defintion.
+     transpiled struct. t0, t1, t2... will be given reflect.Types of the passed types.
+    1. In v, we'll put the previous RHS of the construction, with the type parameters turned into
+       interface{} to match the converted defintion.
     	m := <string, int>OrderedMap{m: map[string]int{}}
     	m := OrderedMap{v: struct{m: map[interface{}]interface{}{}}
-  2. If construction is empty (e. g. var st <int>Stack), we'll generate a empty value for .v with
+  TODO 2. If construction is empty (e. g. var st <int>Stack), we'll generate a empty value for .v with
      reflection.
   3. Any reference to a value whose type is parameterized will be turned into a selection of its
      .v. _Except_ for methods.
-  4. A call to a type parameterized function that uses type parameters as result will be turn into
+  TODO 4. A call to a type parameterized function that uses type parameters as result will be turn into
      a anonymous function that will be called immediately.
 
 
 TODO
 
 type IntStack <int>Stack
+
+- Typechecking all over the place.
 
 */
 
@@ -372,6 +374,7 @@ func (tsp *reflectTsp) ValueSpec(spec *ValueSpec) error {
 		for i, name := range spec.Names {
 			tsp.currFrame().vars[name.Name] = &varDecl{
 				ident:        name.Name,
+				type_:        spec.Type,
 				passedParams: params,
 			}
 			if len(spec.Values) < (i + 1) {
@@ -384,6 +387,8 @@ func (tsp *reflectTsp) ValueSpec(spec *ValueSpec) error {
 
 func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 	tsp.pushFrame()
+
+	// 2.3
 	if nd.Recv != nil {
 		for _, recv := range nd.Recv.List {
 			var recvType *Expr
@@ -408,6 +413,8 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 			}
 		}
 	}
+
+	// 2.3
 	body := []Stmt{}
 	for i, arg := range nd.Type.Params.List {
 		v, ok := arg.Type.(*Ident)
@@ -422,6 +429,7 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 		tvar := "__arg_t_" + strconv.Itoa(i)
 		body = append(body, ArgChecker(tvar, arg.Names[0].Name, v.Name, typeparam, v)...)
 	}
+
 	paramedReturns := map[int]*Ident{}
 	rm := 0
 	for i := 0; nd.Type.Results != nil && i < len(nd.Type.Results.List); i++ {
@@ -430,6 +438,7 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 		if !ok {
 			continue
 		}
+		// 2.2
 		typeparam := tsp.lookupPassedParam(v.Name)
 		if typeparam == nil {
 			continue
@@ -448,10 +457,14 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 		nd.Type.Results.List = append(nd.Type.Results.List[:i], nd.Type.Results.List[i+1:]...)
 		i--
 		rm++
+		// 2.3
 		body = append(body, ArgChecker(tvar, arg.Names[0].Name, v.Name, typeparam, &StarExpr{X: v})...)
 	}
+
 	nd.Body.List = append(body, nd.Body.List...)
 	tsp.Block(nd.Body)
+
+	// 2.4
 	if len(paramedReturns) > 0 {
 		for i := 0; i < len(nd.Body.List); i++ {
 			switch stmt := nd.Body.List[i].(type) {
@@ -502,6 +515,7 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 }
 
 func (tsp *reflectTsp) Block(nd *BlockStmt) error {
+	// 3.
 	for _, st := range nd.List {
 		err := tsp.Stmt(st)
 		if err != nil {
@@ -548,6 +562,7 @@ func (tsp *reflectTsp) Expr(nd Expr) (ret Expr, err error) {
 	}
 	switch exp := nd.(type) {
 	case *CompositeLit:
+		// 3.1
 		ty, ok := exp.Type.(*TypeParamsExpr)
 		if !ok {
 			break
@@ -643,10 +658,47 @@ func (tsp *reflectTsp) MakeCompositeLit(ty *TypeParamsExpr, elts []Expr) *Compos
 			},
 		})
 	}
+
+	typeDecl := tsp.lookupType(exp.Type.(*Ident).Name)
+
+	// 3.1.1
+	for _, elt := range elts {
+		kvelt, ok := elt.(*KeyValueExpr)
+		if !ok {
+			continue
+		}
+		eltval := kvelt.Value
+		var toReplace *Expr
+		switch v := eltval.(type) {
+		case *CallExpr:
+			funIdent, ok := v.Fun.(*Ident)
+			if !ok || funIdent.Name != "make" {
+				// Not a make in the value. Nothing we can do about that.
+				continue
+			}
+			toReplace = &v.Args[0]
+		case *CompositeLit:
+			toReplace = &v.Type
+		}
+
+		structDef, ok := typeDecl.definition.(*StructType)
+		if !ok {
+			break // Go will complain about this.
+		}
+
+		for _, kv := range structDef.Fields.List {
+			for _, name := range kv.Names {
+				if name.Name == kvelt.Key.(*Ident).Name {
+					*toReplace = kv.Type
+				}
+			}
+		}
+	}
+
 	exp.Elts = append(exp.Elts, &KeyValueExpr{
 		Key: NewIdent("v"),
 		Value: &CompositeLit{
-			Type: tsp.lookupType(exp.Type.(*Ident).Name).definition,
+			Type: typeDecl.definition,
 			Elts: elts,
 		},
 	})

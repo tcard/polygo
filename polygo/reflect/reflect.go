@@ -32,8 +32,9 @@ Transformations:
   TODO 2. If construction is empty (e. g. var st <int>Stack), we'll generate a empty value for .v with
      reflection.
   3. Any reference to a value whose type is parameterized will be turned into a selection of its
-     .v. _Except_ for methods.
-  TODO 4. A call to a type parameterized function that uses type parameters as result will be turn into
+     .v.
+    1. _Except_ for methods.
+  4. A call to a type parameterized function that uses type parameters as result will be turn into
      a anonymous function that will be called immediately.
 
 
@@ -61,11 +62,14 @@ type reflectTsp struct {
 }
 
 type typeDecl struct {
-	ident       string
-	params      map[string]string // T -> t0, U -> t1...
-	definition  Expr              // map[interface{}]interface{}
-	originalDef Expr              // map[T]U
-	pos         int
+	ident          string
+	paramsOrder    []string
+	params         map[string]string // T -> t0, U -> t1...
+	definition     Expr              // map[interface{}]interface{}
+	originalDef    Expr              // map[T]U
+	pos            int
+	methods        map[string]*FuncType
+	paramedResults []int
 }
 
 type varDecl struct {
@@ -239,11 +243,13 @@ func (tsp *reflectTsp) TypeSpec(ispec *Spec) error {
 	case *ParamedTypeSpec:
 		// 1.
 		paramIdents := map[string]string{} // T -> t0, U -> t1
+		paramsOrder := []string{}
 		tn := []*Ident{}
 		for i, param := range spec.Params {
 			newtn := NewIdent("t" + strconv.Itoa(i))
 			tn = append(tn, newtn)
 			paramIdents[param.Name] = newtn.Name
+			paramsOrder = append(paramsOrder, param.Name)
 		}
 
 		prevDef := spec.Type
@@ -251,6 +257,7 @@ func (tsp *reflectTsp) TypeSpec(ispec *Spec) error {
 
 		tsp.currFrame().paramedTypes[spec.Name.Name] = &typeDecl{
 			ident:       spec.Name.Name,
+			paramsOrder: paramsOrder,
 			params:      paramIdents,
 			definition:  spec.Type,
 			originalDef: prevDef, // 1.1
@@ -386,6 +393,8 @@ func (tsp *reflectTsp) ValueSpec(spec *ValueSpec) error {
 }
 
 func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
+	if nd.Recv != nil {
+	}
 	tsp.pushFrame()
 
 	// 2.3
@@ -397,6 +406,7 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 			} else {
 				recvType = &recv.Type
 			}
+			var recvName string
 			if pt, ok := (*recvType).(*TypeParamsExpr); ok {
 				for i, param := range pt.Params {
 					ident := NewIdent("t" + strconv.Itoa(i))
@@ -410,7 +420,31 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 					ident:        recv.Names[0].Name,
 					passedParams: []Expr{},
 				}
+				recvName = pt.Type.(*Ident).Name
+			} else if ident, ok := (*recvType).(*Ident); ok {
+				recvName = ident.Name
+			} else {
+				panic("")
 			}
+			t := tsp.scopes[0].paramedTypes[recvName]
+			if t.methods == nil {
+				t.methods = map[string]*FuncType{}
+			}
+			method := &FuncType{
+				Func:    nd.Type.Func,
+				Params:  &FieldList{List: []*Field{}},
+				Results: nil,
+			}
+			for _, p := range nd.Type.Params.List {
+				method.Params.List = append(method.Params.List, p)
+			}
+			if nd.Type.Results != nil {
+				method.Results = &FieldList{List: []*Field{}}
+				for _, r := range nd.Type.Results.List {
+					method.Results.List = append(method.Results.List, r)
+				}
+			}
+			t.methods[nd.Name.Name] = method
 		}
 	}
 
@@ -532,33 +566,25 @@ func (tsp *reflectTsp) Stmt(nd Stmt) (err error) {
 	case *DeclStmt:
 		return tsp.GenDecl(v.Decl.(*GenDecl))
 	case *ExprStmt:
-		v.X, err = tsp.Expr(v.X)
-		return err
+		v.X = tsp.Expr(v.X)
+		return nil
 	}
 	return nil
 }
 
 func (tsp *reflectTsp) AssignStmt(nd *AssignStmt) error {
 	for i, v := range nd.Lhs {
-		expr, err := tsp.Expr(v)
-		if err != nil {
-			return err
-		}
-		nd.Lhs[i] = expr
+		nd.Lhs[i] = tsp.Expr(v)
 	}
 	for i, v := range nd.Rhs {
-		expr, err := tsp.Expr(v)
-		if err != nil {
-			return err
-		}
-		nd.Rhs[i] = expr
+		nd.Rhs[i] = tsp.Expr(v)
 	}
 	return nil
 }
 
-func (tsp *reflectTsp) Expr(nd Expr) (ret Expr, err error) {
+func (tsp *reflectTsp) Expr(nd Expr) Expr {
 	if nd == nil {
-		return
+		return nd
 	}
 	switch exp := nd.(type) {
 	case *CompositeLit:
@@ -575,61 +601,148 @@ func (tsp *reflectTsp) Expr(nd Expr) (ret Expr, err error) {
 			return &SelectorExpr{
 				X:   exp,
 				Sel: NewIdent("v"),
-			}, nil
-		}
-	case *CallExpr:
-		exp.Fun, err = tsp.Expr(exp.Fun)
-		if err != nil {
-			return nil, err
-		}
-		for i, arg := range exp.Args {
-			exp.Args[i], err = tsp.Expr(arg)
-			if err != nil {
-				return nil, err
 			}
 		}
+	case *CallExpr:
+		return tsp.CallExpr(exp)
 	case *BinaryExpr:
-		exp.X, err = tsp.Expr(exp.X)
-		if err != nil {
-			return nil, err
-		}
-		exp.Y, err = tsp.Expr(exp.Y)
-		if err != nil {
-			return nil, err
-		}
+		exp.X = tsp.Expr(exp.X)
+		exp.Y = tsp.Expr(exp.Y)
 	case *IndexExpr:
-		exp.X, err = tsp.Expr(exp.X)
-		if err != nil {
-			return nil, err
-		}
-		exp.Index, err = tsp.Expr(exp.Index)
-		if err != nil {
-			return nil, err
-		}
+		exp.X = tsp.Expr(exp.X)
+		exp.Index = tsp.Expr(exp.Index)
 	case *SliceExpr:
-		exp.X, err = tsp.Expr(exp.X)
-		if err != nil {
-			return nil, err
-		}
-		exp.Low, err = tsp.Expr(exp.Low)
-		if err != nil {
-			return nil, err
-		}
-		exp.High, err = tsp.Expr(exp.High)
-		if err != nil {
-			return nil, err
-		}
-		exp.Max, err = tsp.Expr(exp.Max)
-		if err != nil {
-			return nil, err
-		}
+		exp.X = tsp.Expr(exp.X)
+		exp.Low = tsp.Expr(exp.Low)
+		exp.High = tsp.Expr(exp.High)
+		exp.Max = tsp.Expr(exp.Max)
 	case *SelectorExpr:
-		exp.X, err = tsp.Expr(exp.X)
-		if err != nil {
-			return nil, err
+		// 3.3.1
+		if t, _ := tsp.paramedTypeOfExpr(exp.X); t == nil {
+			exp.X = tsp.Expr(exp.X)
 		}
 	}
-	return nd, nil
+	return nd
+}
+
+func (tsp *reflectTsp) CallExpr(exp *CallExpr) Expr {
+	exp.Fun = tsp.Expr(exp.Fun)
+	for i, arg := range exp.Args {
+		exp.Args[i] = tsp.Expr(arg)
+	}
+	// 3.4
+	methExp, ok := exp.Fun.(*SelectorExpr)
+	if !ok {
+		return exp
+	}
+	type_, passedParams := tsp.paramedTypeOfExpr(methExp.X)
+	if type_ == nil || type_.methods == nil {
+		return exp
+	}
+	method := type_.methods[methExp.Sel.Name]
+	if method.Results == nil {
+		return exp
+	}
+	anyParamed := false
+	type result struct {
+		name      string
+		type_     Expr
+		isParamed bool
+	}
+	results := []result{}
+	for i, res := range method.Results.List {
+		var names []*Ident
+		if len(res.Names) > 0 {
+			names = res.Names
+		} else {
+			names = []*Ident{NewIdent("out" + strconv.Itoa(i))}
+		}
+		for _, name := range names {
+			var passedParam Expr
+			for i, p := range type_.paramsOrder {
+				if p == res.Type.(*Ident).Name { // TODO
+					passedParam = passedParams[i]
+					break
+				}
+			}
+			isParamed := passedParam != nil
+			if isParamed {
+				anyParamed = true
+			}
+			results = append(results, result{
+				name:      name.Name,
+				type_:     passedParam,
+				isParamed: isParamed,
+			})
+		}
+	}
+	if anyParamed {
+		resultList := []*Field{}
+		returnIdents := []Expr{}
+		lhs := []Expr{}
+		var specs []Spec
+		for _, r := range results {
+			resultList = append(resultList, &Field{
+				Type: r.type_,
+			})
+			if r.isParamed {
+				specs = append(specs, &ValueSpec{
+					Names: []*Ident{NewIdent(r.name)},
+					Type:  r.type_,
+				})
+				exp.Args = append(exp.Args, &UnaryExpr{
+					Op: token.AND,
+					X:  NewIdent(r.name),
+				})
+			} else {
+				lhs = append(lhs, NewIdent(r.name))
+			}
+			returnIdents = append(returnIdents, NewIdent(r.name))
+		}
+		var doCall Stmt = &ExprStmt{exp}
+		if len(lhs) > 0 {
+			doCall = &AssignStmt{
+				Lhs: lhs,
+				Tok: token.ASSIGN,
+				Rhs: []Expr{exp},
+			}
+		}
+		return &CallExpr{Fun: &FuncLit{
+			Type: &FuncType{
+				Results: &FieldList{List: resultList},
+			},
+			Body: &BlockStmt{
+				List: []Stmt{
+					&DeclStmt{Decl: &GenDecl{
+						Tok:   token.VAR,
+						Specs: specs,
+					}},
+					doCall,
+					&ReturnStmt{
+						Results: returnIdents,
+					},
+				},
+			},
+		}}
+	}
+	return exp
+}
+
+func (tsp *reflectTsp) paramedTypeOfExpr(exp Expr) (decl *typeDecl, passedParams []Expr) {
+	switch vexp := exp.(type) {
+	case *Ident:
+		var_ := tsp.lookupVar(vexp.Name)
+		if var_ == nil {
+			return
+		}
+		type_, ok := var_.type_.(*Ident)
+		if !ok {
+			return
+		}
+		return tsp.lookupType(type_.Name), var_.passedParams
+		// TODO
+	}
+	return
 }
 
 func (tsp *reflectTsp) MakeCompositeLit(ty *TypeParamsExpr, elts []Expr) *CompositeLit {

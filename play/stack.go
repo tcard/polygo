@@ -20,18 +20,18 @@ func (s *Stack) Push(x interface {
 }) {
 	__arg_t_0 := reflect.TypeOf(x)
 	if __arg_t_0 != s.t0 {
-		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __arg_t_0, `T`, `x`, s.t0))
+		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __arg_t_0, `a`, `x`, s.t0))
 	}
 	s.v = append(s.v, x)
 }
-func (s *Stack) Pop(out interface {
+func (s *Stack) Pop(__out_0 interface {
 }) {
-	__out_t_0 := reflect.TypeOf(out)
+	__out_t_0 := reflect.TypeOf(__out_0)
 	if __out_t_0.Kind() != reflect.Ptr || __out_t_0.Elem() != s.t0 {
-		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __out_t_0, `T`, `out`, s.t0))
+		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __out_t_0, `a`, `__out_0`, s.t0))
 	}
 	x := s.v[len(s.v)-1]
-	reflect.Indirect(reflect.ValueOf(out)).Set(reflect.ValueOf(x))
+	reflect.Indirect(reflect.ValueOf(__out_0)).Set(reflect.ValueOf(x))
 	s.v = s.v[:len(s.v)-1]
 }
 
@@ -49,8 +49,8 @@ func main() {
 	}{123, 456}}
 	var b Stack = Stack{t0: reflect.TypeOf(new(string)).Elem(), v: []interface {
 	}{}}
-	b.v.Push("lalala")
-	b.v.Push("lelele")
+	b.Push("lalala")
+	b.Push("lelele")
 	fmt.Println(a, b.v)
 	fmt.Println(func() string {
 		var out0 string

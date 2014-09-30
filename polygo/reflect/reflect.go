@@ -396,6 +396,7 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 	if nd.Recv != nil {
 	}
 	tsp.pushFrame()
+	defer tsp.popFrame()
 
 	// 2.3
 	if nd.Recv != nil {
@@ -494,7 +495,6 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 		// 2.3
 		body = append(body, ArgChecker(tvar, arg.Names[0].Name, v.Name, typeparam, &StarExpr{X: v})...)
 	}
-
 	nd.Body.List = append(body, nd.Body.List...)
 	tsp.Block(nd.Body)
 
@@ -544,7 +544,6 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 			}
 		}
 	}
-	tsp.popFrame()
 	return nil
 }
 
@@ -658,20 +657,22 @@ func (tsp *reflectTsp) CallExpr(exp *CallExpr) Expr {
 			names = []*Ident{NewIdent("out" + strconv.Itoa(i))}
 		}
 		for _, name := range names {
-			var passedParam Expr
+			var restype Expr
 			for i, p := range type_.paramsOrder {
 				if p == res.Type.(*Ident).Name { // TODO
-					passedParam = passedParams[i]
+					restype = passedParams[i]
 					break
 				}
 			}
-			isParamed := passedParam != nil
+			isParamed := restype != nil
 			if isParamed {
 				anyParamed = true
+			} else {
+				restype = res.Type
 			}
 			results = append(results, result{
 				name:      name.Name,
-				type_:     passedParam,
+				type_:     restype,
 				isParamed: isParamed,
 			})
 		}
@@ -703,7 +704,7 @@ func (tsp *reflectTsp) CallExpr(exp *CallExpr) Expr {
 		if len(lhs) > 0 {
 			doCall = &AssignStmt{
 				Lhs: lhs,
-				Tok: token.ASSIGN,
+				Tok: token.DEFINE,
 				Rhs: []Expr{exp},
 			}
 		}

@@ -3,10 +3,10 @@ package main
 import "reflect"
 import "fmt"
 
-func (v test) String() string {
+func (v Stack) String() string {
 	return fmt.Sprint(v.v)
 }
-func (v Stack) String() string {
+func (v test) String() string {
 	return fmt.Sprint(v.v)
 }
 
@@ -24,15 +24,16 @@ func (s *Stack) Push(x interface {
 	}
 	s.v = append(s.v, x)
 }
-func (s *Stack) Pop(__out_0 interface {
-}) {
-	__out_t_0 := reflect.TypeOf(__out_0)
+func (s *Stack) Pop(popped interface {
+}) (jarl int) {
+	__out_t_0 := reflect.TypeOf(popped)
 	if __out_t_0.Kind() != reflect.Ptr || __out_t_0.Elem() != s.t0 {
-		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __out_t_0, `a`, `__out_0`, s.t0))
+		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __out_t_0, `a`, `popped`, s.t0))
 	}
 	x := s.v[len(s.v)-1]
-	reflect.Indirect(reflect.ValueOf(__out_0)).Set(reflect.ValueOf(x))
 	s.v = s.v[:len(s.v)-1]
+	reflect.Indirect(reflect.ValueOf(popped)).Set(reflect.ValueOf(x))
+	return 123
 }
 
 type test struct {
@@ -52,10 +53,10 @@ func main() {
 	b.Push("lalala")
 	b.Push("lelele")
 	fmt.Println(a, b.v)
-	fmt.Println(func() string {
-		var out0 string
-		b.Pop(&out0)
-		return out0
+	fmt.Println(func() (string, int) {
+		var popped string
+		jarl := b.Pop(&popped)
+		return popped, jarl
 	}())
 	fmt.Println(b.v)
 }

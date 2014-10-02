@@ -38,4 +38,6 @@ func main() {
 
 	v, ok := m.Get("abc")
 	fmt.Println(v, ok, m)
+
+	fmt.Println(m.Get("abc"))
 }

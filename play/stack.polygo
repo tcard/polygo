@@ -8,7 +8,7 @@ func (s *<a>Stack) Push(x a) {
 	s = append(s, x)
 }
 
-func (s *<a>Stack) Pop() (popped a, jarl int) {
+func (s *<T>Stack) Pop() (popped T, jarl int) {
 	x := s[len(s)-1]
 	s = s[:len(s)-1]
 	return x, 123

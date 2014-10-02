@@ -71,6 +71,15 @@ func main() {
 	}]interface {
 	}{"nene": 9999}}}
 	m.Set("abc", 123)
-	v, ok := m.Get("abc")
-	fmt.Println(v, ok, m)
+	v, ok := func() (int, bool) {
+		var out0 int
+		out1 := m.Get("abc", &out0)
+		return out0, out1
+	}()
+	fmt.Println(v, ok, m.v)
+	fmt.Println(func() (int, bool) {
+		var out0 int
+		out1 := m.Get("abc", &out0)
+		return out0, out1
+	}())
 }

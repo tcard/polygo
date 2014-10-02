@@ -3,10 +3,10 @@ package main
 import "reflect"
 import "fmt"
 
-func (v Stack) String() string {
+func (v test) String() string {
 	return fmt.Sprint(v.v)
 }
-func (v test) String() string {
+func (v Stack) String() string {
 	return fmt.Sprint(v.v)
 }
 
@@ -28,7 +28,7 @@ func (s *Stack) Pop(popped interface {
 }) (jarl int) {
 	__out_t_0 := reflect.TypeOf(popped)
 	if __out_t_0.Kind() != reflect.Ptr || __out_t_0.Elem() != s.t0 {
-		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __out_t_0, `a`, `popped`, s.t0))
+		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __out_t_0, `T`, `popped`, s.t0))
 	}
 	x := s.v[len(s.v)-1]
 	s.v = s.v[:len(s.v)-1]
@@ -52,7 +52,7 @@ func main() {
 	}{}}
 	b.Push("lalala")
 	b.Push("lelele")
-	fmt.Println(a, b.v)
+	fmt.Println(a.v, b.v)
 	fmt.Println(func() (string, int) {
 		var popped string
 		jarl := b.Pop(&popped)

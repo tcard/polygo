@@ -63,13 +63,17 @@ type reflectTsp struct {
 
 type typeDecl struct {
 	ident          string
-	paramsOrder    []string
-	params         map[string]string // T -> t0, U -> t1...
-	definition     Expr              // map[interface{}]interface{}
-	originalDef    Expr              // map[T]U
+	params         []string // T, U...
+	definition     Expr     // map[interface{}]interface{}
+	originalDef    Expr     // map[T]U
 	pos            int
-	methods        map[string]*FuncType
+	methods        map[string]typeDeclMethod
 	paramedResults []int
+}
+
+type typeDeclMethod struct {
+	formalTypeParams []string
+	fun              *FuncType
 }
 
 type varDecl struct {
@@ -90,7 +94,7 @@ type reflectTspScope struct {
 
 	// The type parameters active within the current scope (ie. passed to the current function).
 	// Values are expressions of reflect.Type values.
-	passedParams map[string]Expr
+	activeParams map[string]Expr
 }
 
 func NewReflectTsp() *reflectTsp {
@@ -103,7 +107,7 @@ func (tsp *reflectTsp) pushFrame() {
 	tsp.scopes = append(tsp.scopes, &reflectTspScope{
 		paramedTypes: map[string]*typeDecl{},
 		vars:         map[string]*varDecl{},
-		passedParams: map[string]Expr{},
+		activeParams: map[string]Expr{},
 	})
 }
 
@@ -133,9 +137,9 @@ func (tsp *reflectTsp) lookupType(name string) *typeDecl {
 	return nil
 }
 
-func (tsp *reflectTsp) lookupPassedParam(name string) Expr {
+func (tsp *reflectTsp) lookupActiveParam(name string) Expr {
 	for i := len(tsp.scopes) - 1; i >= 0; i-- {
-		if v, ok := tsp.scopes[i].passedParams[name]; ok {
+		if v, ok := tsp.scopes[i].activeParams[name]; ok {
 			return v
 		}
 	}
@@ -239,57 +243,59 @@ func (tsp *reflectTsp) GenDecl(nd *GenDecl) error {
 }
 
 func (tsp *reflectTsp) TypeSpec(ispec *Spec) error {
-	switch spec := (*ispec).(type) {
-	case *ParamedTypeSpec:
-		// 1.
-		paramIdents := map[string]string{} // T -> t0, U -> t1
-		paramsOrder := []string{}
-		tn := []*Ident{}
-		for i, param := range spec.Params {
-			newtn := NewIdent("t" + strconv.Itoa(i))
-			tn = append(tn, newtn)
-			paramIdents[param.Name] = newtn.Name
-			paramsOrder = append(paramsOrder, param.Name)
-		}
+	spec, ok := (*ispec).(*ParamedTypeSpec)
+	if !ok {
+		return nil
+	}
+	// 1.
+	paramIdents := []string{}
+	tn := []*Ident{}
+	for i, param := range spec.Params {
+		newtn := NewIdent("t" + strconv.Itoa(i))
+		tn = append(tn, newtn)
+		paramIdents = append(paramIdents, param.Name)
+	}
 
-		prevDef := spec.Type
-		spec.Type = tsp.replaceTypeParams(spec.Type, paramIdents)
+	prevDef := spec.Type
+	spec.Type = tsp.replaceTypeParams(spec.Type, paramIdents)
 
-		tsp.currFrame().paramedTypes[spec.Name.Name] = &typeDecl{
-			ident:       spec.Name.Name,
-			paramsOrder: paramsOrder,
-			params:      paramIdents,
-			definition:  spec.Type,
-			originalDef: prevDef, // 1.1
-		}
+	tsp.currFrame().paramedTypes[spec.Name.Name] = &typeDecl{
+		ident:       spec.Name.Name,
+		params:      paramIdents,
+		definition:  spec.Type,
+		originalDef: prevDef, // 1.1
+	}
 
-		spec.Type = &StructType{
-			Struct: spec.Type.Pos(),
-			Fields: &FieldList{
-				List: []*Field{
-					{
-						Names: tn,
-						Type: &SelectorExpr{
-							X:   NewIdent("reflect"),
-							Sel: NewIdent("Type"),
-						},
-					},
-					{Names: []*Ident{NewIdent("v")},
-						Type: spec.Type,
+	spec.Type = &StructType{
+		Struct: spec.Type.Pos(),
+		Fields: &FieldList{
+			List: []*Field{
+				{
+					Names: tn,
+					Type: &SelectorExpr{
+						X:   NewIdent("reflect"),
+						Sel: NewIdent("Type"),
 					},
 				},
+				{Names: []*Ident{NewIdent("v")},
+					Type: spec.Type,
+				},
 			},
-		}
-		*ispec = &spec.TypeSpec
+		},
 	}
+	*ispec = &spec.TypeSpec
 	return nil
 }
 
 // Find any occurrence of paramIdents inside typeDef, replacing it with interface{}.
-func (tsp *reflectTsp) replaceTypeParams(typeDef Expr, paramIdents map[string]string) Expr {
+func (tsp *reflectTsp) replaceTypeParams(typeDef Expr, paramIdents []string) Expr {
 	isTypeParam := func(x *Ident) bool {
-		_, ok := paramIdents[x.Name]
-		return ok
+		for _, param := range paramIdents {
+			if x.Name == param {
+				return true
+			}
+		}
+		return false
 	}
 
 	switch v := typeDef.(type) {
@@ -408,13 +414,15 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 				recvType = &recv.Type
 			}
 			var recvName string
+			formalParams := []string{}
 			if pt, ok := (*recvType).(*TypeParamsExpr); ok {
 				for i, param := range pt.Params {
 					ident := NewIdent("t" + strconv.Itoa(i))
-					tsp.currFrame().passedParams[param.(*Ident).Name] = &SelectorExpr{
+					tsp.currFrame().activeParams[param.(*Ident).Name] = &SelectorExpr{
 						X:   recv.Names[0],
 						Sel: ident,
 					}
+					formalParams = append(formalParams, param.(*Ident).Name)
 				}
 				*recvType = pt.Type
 				tsp.currFrame().vars[recv.Names[0].Name] = &varDecl{
@@ -428,21 +436,28 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 				panic("")
 			}
 			t := tsp.scopes[0].paramedTypes[recvName]
-			if t.methods == nil {
-				t.methods = map[string]*FuncType{}
+			if t == nil {
+				continue
 			}
-			method := &FuncType{
-				Func:    nd.Type.Func,
-				Params:  &FieldList{List: []*Field{}},
-				Results: nil,
+			if t.methods == nil {
+				t.methods = map[string]typeDeclMethod{}
+			}
+			// Got to copy nd because it'll be mutated later.
+			method := typeDeclMethod{
+				formalTypeParams: formalParams,
+				fun: &FuncType{
+					Func:    nd.Type.Func,
+					Params:  &FieldList{List: []*Field{}},
+					Results: nil,
+				},
 			}
 			for _, p := range nd.Type.Params.List {
-				method.Params.List = append(method.Params.List, p)
+				method.fun.Params.List = append(method.fun.Params.List, p)
 			}
 			if nd.Type.Results != nil {
-				method.Results = &FieldList{List: []*Field{}}
+				method.fun.Results = &FieldList{List: []*Field{}}
 				for _, r := range nd.Type.Results.List {
-					method.Results.List = append(method.Results.List, r)
+					method.fun.Results.List = append(method.fun.Results.List, r)
 				}
 			}
 			t.methods[nd.Name.Name] = method
@@ -456,7 +471,7 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 		if !ok {
 			continue
 		}
-		typeparam := tsp.lookupPassedParam(v.Name)
+		typeparam := tsp.lookupActiveParam(v.Name)
 		if typeparam == nil {
 			continue
 		}
@@ -474,7 +489,7 @@ func (tsp *reflectTsp) FuncDecl(nd *FuncDecl) error {
 			continue
 		}
 		// 2.2
-		typeparam := tsp.lookupPassedParam(v.Name)
+		typeparam := tsp.lookupActiveParam(v.Name)
 		if typeparam == nil {
 			continue
 		}
@@ -576,6 +591,15 @@ func (tsp *reflectTsp) AssignStmt(nd *AssignStmt) error {
 		nd.Lhs[i] = tsp.Expr(v)
 	}
 	for i, v := range nd.Rhs {
+		if clit, ok := v.(*CompositeLit); ok {
+			if tpexp, ok := clit.Type.(*TypeParamsExpr); ok {
+				tsp.currFrame().vars[nd.Lhs[i].(*Ident).Name] = &varDecl{
+					ident:        nd.Lhs[i].(*Ident).Name, // TODO: non-ident LHS
+					type_:        tpexp.Type,
+					passedParams: tpexp.Params,
+				}
+			}
+		}
 		nd.Rhs[i] = tsp.Expr(v)
 	}
 	return nil
@@ -639,17 +663,18 @@ func (tsp *reflectTsp) CallExpr(exp *CallExpr) Expr {
 		return exp
 	}
 	method := type_.methods[methExp.Sel.Name]
-	if method.Results == nil {
+	if method.fun.Results == nil {
 		return exp
 	}
-	anyParamed := false
 	type result struct {
 		name      string
 		type_     Expr
 		isParamed bool
 	}
 	results := []result{}
-	for i, res := range method.Results.List {
+	anyParamed := false
+	i := 0
+	for _, res := range method.fun.Results.List {
 		var names []*Ident
 		if len(res.Names) > 0 {
 			names = res.Names
@@ -658,9 +683,9 @@ func (tsp *reflectTsp) CallExpr(exp *CallExpr) Expr {
 		}
 		for _, name := range names {
 			var restype Expr
-			for i, p := range type_.paramsOrder {
-				if p == res.Type.(*Ident).Name { // TODO
-					restype = passedParams[i]
+			for pi, p := range method.formalTypeParams {
+				if p == res.Type.(*Ident).Name {
+					restype = passedParams[pi]
 					break
 				}
 			}
@@ -676,6 +701,7 @@ func (tsp *reflectTsp) CallExpr(exp *CallExpr) Expr {
 				isParamed: isParamed,
 			})
 		}
+		i++
 	}
 	if anyParamed {
 		resultList := []*Field{}
@@ -729,6 +755,8 @@ func (tsp *reflectTsp) CallExpr(exp *CallExpr) Expr {
 	return exp
 }
 
+// Within a scope, returns the type of an expression if it is parametrized and the passed params
+// to it.
 func (tsp *reflectTsp) paramedTypeOfExpr(exp Expr) (decl *typeDecl, passedParams []Expr) {
 	switch vexp := exp.(type) {
 	case *Ident:

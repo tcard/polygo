@@ -10,6 +10,7 @@ package printer
 
 import (
 	"bytes"
+	"fmt"
 	"go/token"
 	"unicode/utf8"
 
@@ -879,7 +880,7 @@ func (p *printer) expr1(expr ast.Expr, prec1, depth int) {
 		p.expr(x.Value)
 
 	default:
-		panic("unreachable")
+		panic(fmt.Sprintf("unreachable %T", expr))
 	}
 
 	return

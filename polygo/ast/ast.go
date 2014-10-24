@@ -396,9 +396,10 @@ type (
 
 	// A FuncType node represents a function type.
 	FuncType struct {
-		Func    token.Pos  // position of "func" keyword (token.NoPos if there is no "func")
-		Params  *FieldList // (incoming) parameters; non-nil
-		Results *FieldList // (outgoing) results; or nil
+		Func       token.Pos // position of "func" keyword (token.NoPos if there is no "func")
+		TypeParams []*Ident
+		Params     *FieldList // (incoming) parameters; non-nil
+		Results    *FieldList // (outgoing) results; or nil
 	}
 
 	// An InterfaceType node represents an interface type.

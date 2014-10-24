@@ -2395,6 +2395,27 @@ func (p *parser) parseFuncDecl() *ast.FuncDecl {
 		recv = p.parseParameters(scope, false)
 	}
 
+	typeParams := []*ast.Ident{}
+	if p.tok == token.LSS {
+		pos := p.pos
+		p.next()
+		params := p.parseUnaryExprList(false)
+		if len(params) == 0 {
+			p.errorExpected(pos, "expression")
+		} else if p.tok != token.GTR {
+			// int > Stack kind of thing here.
+			p.errorExpected(pos, token.GTR.String())
+		}
+		p.next()
+		for _, param := range params {
+			ident, ok := param.(*ast.Ident)
+			if !ok {
+				p.errorExpected(param.Pos(), "ident")
+			}
+			typeParams = append(typeParams, ident)
+		}
+	}
+
 	ident := p.parseIdent()
 
 	params, results := p.parseSignature(scope)
@@ -2410,9 +2431,10 @@ func (p *parser) parseFuncDecl() *ast.FuncDecl {
 		Recv: recv,
 		Name: ident,
 		Type: &ast.FuncType{
-			Func:    pos,
-			Params:  params,
-			Results: results,
+			Func:       pos,
+			TypeParams: typeParams,
+			Params:     params,
+			Results:    results,
 		},
 		Body: body,
 	}

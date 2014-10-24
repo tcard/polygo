@@ -1,0 +1,70 @@
+package main
+
+import "fmt"
+
+/*
+activeParams: a, b
+vars:
+- f
+	* Type: func(a) b
+	* Transform type to: interface{}
+- as
+	* Type: []a
+	* Transform type to: interface{}
+
+bs := make([]b, len(as))
+	RHS:
+	make([]b, len(as))
+		* It's a make; check if type is parameterized -> []b
+		* It is, so we convert to MakeSlice
+			* Len: len(as); len of paramed slice -> check that []a is a slice, array or map, convert to val_as.Len()
+			* No cap, so 0
+		* Inferred type: []b
+	LHS:
+	bs
+		* Set inferred type: []b in vars
+
+for i, v := range as {
+	Range:
+		* It's an identifier; lookup in vars.
+		* It's paramed, with type []a.
+		* Must be converted to indexed loop.
+	for i := 0; i < val_as.Len(); i++ { 
+		v := val_as.Index(i)
+
+	Add vars: v, with type a
+
+bs[i] = f(v)
+	RHS:
+
+*/
+
+func <a, b>Map(f func(a) b, as []a) []b {
+	bs := make([]b, len(as))
+	for i, v := range as {
+		bs[i] = f(v)
+		return bs
+	}
+	return bs
+}
+
+// func main() {
+// 	// <int, string> could be inferred.
+// 	b := <int, string>Map(func(x int) string{
+// 		strconv.Itoa(x+2)
+// 	}, []int{1, 2, 3})
+// 	fmt.Println(b)
+
+// 	// filter := <a>func(f func(a) bool, as []a) []a {
+// 	// 	ret := []a{}
+// 	// 	for i, v := range as {
+// 	// 		if f(v) {
+// 	// 			ret = append(ret, v)
+// 	// 		}
+// 	// 	}
+// 	// 	return ret
+// 	// }
+// 	// fmt.Println(filter(func(x int) bool {
+// 	// 	return x % 2 == 0
+// 	// }, []int{1, 2, 3, 4, 5, 6}))
+// }

@@ -20,7 +20,7 @@ func (s *Stack) Push(x interface {
 }) {
 	__arg_t_0 := reflect.TypeOf(x)
 	if __arg_t_0 != s.t0 {
-		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __arg_t_0, `a`, `x`, s.t0))
+		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __arg_t_0, `x`, `x`, s.t0))
 	}
 	s.v = append(s.v, x)
 }
@@ -28,7 +28,7 @@ func (s *Stack) Pop(popped interface {
 }) (jarl int) {
 	__out_t_0 := reflect.TypeOf(popped)
 	if __out_t_0.Kind() != reflect.Ptr || __out_t_0.Elem() != s.t0 {
-		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __out_t_0, `T`, `popped`, s.t0))
+		panic(fmt.Sprintf(`polygo: bad type %v for type parameter %v in argument %v, expected %v.`, __out_t_0, `popped`, `popped`, s.t0))
 	}
 	x := s.v[len(s.v)-1]
 	s.v = s.v[:len(s.v)-1]

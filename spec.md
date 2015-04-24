@@ -2,9 +2,9 @@
 
 Polygo extends Go by:
 
-* Allowing defined types to leave parts of their definition not fully set, but bound to _type parameters_. Instances of a type_parameterized type_ must provide the parameters needed.
+* Allowing defined types to leave parts of their definition not fully set, but bound to _type parameters_. Instances of a _type-parameterized type_ must provide the parameters needed.
 
-* Allowing functions and methods to take not only argumetns parameters, but also type parameters, to which both arguments and return values can be bound.
+* Allowing functions and methods to take not only value parameters (arguments), but also type parameters, to which both arguments and return values can be bound.
 
 ## Extensions to the Go syntax
 
